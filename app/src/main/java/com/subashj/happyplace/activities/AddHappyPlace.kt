@@ -1,6 +1,5 @@
-package com.subashj.happyplace
+package com.subashj.happyplace.activities
 
-import android.app.Activity
 import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.content.ActivityNotFoundException
@@ -8,7 +7,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Bitmap.CompressFormat
 import android.net.Uri
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
@@ -16,14 +14,16 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.util.Log
 import android.view.View
-import android.widget.ImageView
 import android.widget.Toast
+import com.example.happyplacesapp.database.DatabaseHandler
 import com.karumi.dexter.Dexter
 import com.karumi.dexter.MultiplePermissionsReport
 import com.karumi.dexter.PermissionToken
 import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener
+import com.subashj.happyplace.R
 import com.subashj.happyplace.databinding.ActivityAddHappyPlaceBinding
+import com.subashj.happyplace.models.HappyPlaceModel
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -35,6 +35,10 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
     private var binding : ActivityAddHappyPlaceBinding ?= null
     private var cal = Calendar.getInstance()
     private lateinit var dateSetListener: DatePickerDialog.OnDateSetListener
+    private var saveImageToInternalStorage : Uri? = null
+    private var mLatitude : Double =0.0
+    private var mLongitude : Double = 0.0
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,10 +56,13 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
             cal.set(Calendar.YEAR,year)
             cal.set(Calendar.MONTH,month)
             cal.set(Calendar.DAY_OF_MONTH,dayOfMonth)
-
+            updateDateInView()
         }
+        updateDateInView()
+
         binding?.etDate?.setOnClickListener(this)
         binding?.tvAddImage?.setOnClickListener(this)
+        binding?.btnSave?.setOnClickListener(this)
 
     }
 
@@ -68,7 +75,7 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
                     cal.get(Calendar.DAY_OF_MONTH)).show()
                 updateDateInView()
             }
-            R.id.tv_add_image  ->{
+            R.id.tv_add_image ->{
                 val pictureDialog = AlertDialog.Builder(this)
                 pictureDialog.setTitle("Select action")
                 val pictureDialogItem = arrayOf("Select Photo from Gallery",
@@ -82,23 +89,60 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
                 }
                 pictureDialog.show()
             }
+            R.id.btn_save ->{
+                when{
+                    binding?.etTitle?.text.isNullOrBlank() ->{
+                        Toast.makeText(this, "Please Enter Title", Toast.LENGTH_SHORT).show()
+                    }
+                    binding?.etDescription?.text.isNullOrBlank() ->{
+                        Toast.makeText(this, "Please Enter Description", Toast.LENGTH_SHORT).show()
+                    }
+                    binding?.etLocation?.text.isNullOrBlank() ->{
+                        Toast.makeText(this, "Please Enter Location", Toast.LENGTH_SHORT).show()
+                    }
+                    saveImageToInternalStorage == null ->{
+                        Toast.makeText(this, "Please Select an Image", Toast.LENGTH_SHORT).show()
+                    }else ->{
+                        val happyPlaceModel = HappyPlaceModel(
+                            0,
+                            binding?.etTitle?.text.toString(),
+                            saveImageToInternalStorage.toString(),
+                            binding?.etDescription?.text.toString(),
+                            binding?.etDate?.text.toString(),
+                            binding?.etLocation?.text.toString(),
+                            mLatitude,
+                            mLongitude
+                        )
+                    val dbHandler = DatabaseHandler(this)
+                    val addHappyPlace = dbHandler.addHappyPlace(happyPlaceModel)
+
+                    if(addHappyPlace > 0){
+                        setResult(RESULT_OK)
+                        finish()
+                     }
+                    }
+                }
+                //save data
+            }
 
         }
 
     }
 
-    public override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (resultCode == Activity.RESULT_OK){
-            if (resultCode == GALLERY){
+        if (resultCode == RESULT_OK) {
+            if (requestCode == GALLERY) {
                 if (data != null) {
                     val contentURI = data.data
                     try {
                         contentURI?.let { uri ->
-                            val selectedImageBitmap = MediaStore.Images.Media.getBitmap(contentResolver, uri)
-                            val saveImageTOInternalStorage = saveImageTOInternalStorage(selectedImageBitmap)
-                            Log.e("Saved Image: ","path::$saveImageTOInternalStorage")
-                            binding?.ivPlaceImageAdd?.setImageBitmap(selectedImageBitmap)                        }
+                            val selectedImageBitmap =
+                                MediaStore.Images.Media.getBitmap(contentResolver, uri)
+                            saveImageToInternalStorage = saveImageTOInternalStorage(selectedImageBitmap)
+                            Log.e("Saved Image: ", "path::$saveImageToInternalStorage")
+                            binding?.ivPlaceImageAdd?.setImageBitmap(selectedImageBitmap)
+                        }
                     } catch (e: IOException) {
                         e.printStackTrace()
                         Toast.makeText(this@AddHappyPlace, "Failed to Load Image!", Toast.LENGTH_SHORT).show()
@@ -106,15 +150,15 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
                 } else {
                     Toast.makeText(this@AddHappyPlace, "Failed to get data from gallery!", Toast.LENGTH_SHORT).show()
                 }
-            }else if (resultCode == CAMERA){
-                val thumbnail : Bitmap = data!!.extras!!.get("data") as Bitmap
-                val saveImageTOInternalStorage = saveImageTOInternalStorage(thumbnail)
-                Log.e("Saved Image: ","path::$saveImageTOInternalStorage")
+            } else if (requestCode == CAMERA) {
+                val thumbnail: Bitmap = data?.extras?.get("data") as Bitmap
+                saveImageToInternalStorage = saveImageTOInternalStorage(thumbnail)
+                Log.e("Saved Image: ", "path::$saveImageToInternalStorage")
                 binding?.ivPlaceImageAdd?.setImageBitmap(thumbnail)
-
             }
         }
     }
+
 
     private fun takePhotoFromCamera() {
         Dexter.withActivity(this)
@@ -127,7 +171,7 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
                 override fun onPermissionsChecked(report: MultiplePermissionsReport?) {
                     if (report!!.areAllPermissionsGranted()){
                         val galleryIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                        startActivityForResult(galleryIntent,CAMERA)
+                        startActivityForResult(galleryIntent, CAMERA)
                     }
                 }
 
@@ -152,7 +196,7 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
                 override fun onPermissionsChecked(report: MultiplePermissionsReport?) {
                     if (report!!.areAllPermissionsGranted()){
                         val galleryIntent = Intent(Intent.ACTION_PICK,MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-                        startActivityForResult(galleryIntent,GALLERY)
+                        startActivityForResult(galleryIntent, GALLERY)
                     }
                 }
 
@@ -203,7 +247,6 @@ class AddHappyPlace : AppCompatActivity(),View.OnClickListener {
             e.printStackTrace()
         }
         return Uri.parse(file.absolutePath)
-
     }
     companion object{
         private const val GALLERY = 1
